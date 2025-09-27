@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
     global camera_manager, signal_handler
     
     # 起動時
-    logger.info("Starting camera stream server...")
+    main_logger.info("Starting camera stream server...")
     
     try:
         # シグナルハンドラーの設定
@@ -47,33 +47,33 @@ async def lifespan(app: FastAPI):
         
         # カメラ開始
         if not camera_manager.start():
-            logger.error("Failed to start camera, but continuing with server startup")
+            main_logger.error("Failed to start camera, but continuing with server startup")
         else:
-            logger.info("Camera started successfully")
+            main_logger.info("Camera started successfully")
 
-        logger.info("Server startup completed")
+        main_logger.info("Server startup completed")
 
     except Exception as e:
-        logger.error(f"Error during server startup: {e}")
+        main_logger.error(f"Error during server startup: {e}")
         # 起動時エラーでもサーバーは継続（カメラなしでも管理機能は提供）
     
     yield
     
     # 終了時
-    logger.info("Initiating server shutdown...")
+    main_logger.info("Initiating server shutdown...")
     
     try:
         if camera_manager:
             camera_manager.stop()
-        logger.info("Server shutdown completed")
+        main_logger.info("Server shutdown completed")
         
     except Exception as e:
-        logger.error(f"Error during server shutdown: {e}")
+        main_logger.error(f"Error during server shutdown: {e}")
     
     finally:
         # 確実にリソースを解放
         cv2.destroyAllWindows()  # OpenCVウィンドウのクリーンアップ
-        logger.info("Resource cleanup completed")
+        main_logger.info("Resource cleanup completed")
 
 app = FastAPI(
     title="Production USB Camera Stream",
@@ -142,7 +142,7 @@ def generate_frames(camera: CameraManager):
                 yield b'\r\n'
             
         except Exception as e:
-            logger.error(f"Error generating frame: {e}")
+            main_logger.error(f"Error generating frame: {e}")
             yield b'--frame\r\n'
             yield b'Content-Type: text/plain\r\n\r\n'
             yield f'Error: {str(e)}\r\n'.encode()
@@ -189,35 +189,35 @@ async def health_check():
 async def restart_camera(camera: CameraManager = Depends(get_camera_manager)):
     """カメラ再起動"""
     try:
-        logger.info("API camera restart requested")
+        main_logger.info("API camera restart requested")
         camera.stop()
         time.sleep(2)  # デバイスの安定化待機
         success = camera.start()
         
         message = "Camera restart successful" if success else "Camera restart failed"
-        logger.info(message)
+        main_logger.info(message)
         
         return {"success": success, "message": message}
         
     except Exception as e:
         error_msg = f"Camera restart failed: {str(e)}"
-        logger.error(error_msg)
+        main_logger.error(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
 
 @app.post("/server/reload-config")
 async def reload_config():
     """設定ファイル再読み込み"""
     try:
-        logger.info("Configuration reload requested")
+        main_logger.info("Configuration reload requested")
         global config_manager
         old_config = config_manager.config
         config_manager.reload_config()
         
         # 設定変更をログに記録
         if old_config != config_manager.config:
-            logger.info("Configuration updated successfully")
+            main_logger.info("Configuration updated successfully")
         else:
-            logger.info("No configuration changes detected")
+            main_logger.info("No configuration changes detected")
         
         return {
             "success": True, 
@@ -227,13 +227,13 @@ async def reload_config():
         
     except Exception as e:
         error_msg = f"Configuration reload failed: {str(e)}"
-        logger.error(error_msg)
+        main_logger.error(error_msg)
         raise HTTPException(status_code=500, detail=error_msg)
 
 @app.post("/server/shutdown")
 async def graceful_shutdown():
     """グレースフルシャットダウン"""
-    logger.info("Graceful shutdown requested via API")
+    main_logger.info("Graceful shutdown requested via API")
     
     # 非同期でシャットダウンを実行
     def delayed_shutdown():
@@ -276,7 +276,7 @@ async def update_config(new_config: dict):
         return {"success": True, "message": "Configuration updated (restart required for some changes)"}
 
     except Exception as e:
-        logger.error(f"Config update failed: {e}")
+        main_logger.error(f"Config update failed: {e}")
         raise HTTPException(status_code=400, detail=f"Invalid configuration: {str(e)}")
 
 # ===== メイン実行 =====
@@ -286,43 +286,44 @@ if __name__ == "__main__":
     
     # ロギング設定
     setup_logging(config.server.log_level, config.server.log_file)
-    
-    logger = logging.getLogger(__name__)
-    logger.info("=" * 60)
-    logger.info("Production USB Camera Stream Server v2.0")
-    logger.info("=" * 60)
-    logger.info(f"Process ID: {os.getpid()}")
-    logger.info(f"Camera device: {config.camera.device_path}")
-    logger.info(f"Resolution: {config.camera.width}x{config.camera.height}")
-    logger.info(f"Server: http://{config.server.host}:{config.server.port}")
-    logger.info(f"Log level: {config.server.log_level}")
+
+    # メイン実行時のロガー取得
+    main_logger = get_logger(__name__)
+    main_logger.info("=" * 60)
+    main_logger.info("Production USB Camera Stream Server v2.0")
+    main_logger.info("=" * 60)
+    main_logger.info(f"Process ID: {os.getpid()}")
+    main_logger.info(f"Camera device: {config.camera.device_path}")
+    main_logger.info(f"Resolution: {config.camera.width}x{config.camera.height}")
+    main_logger.info(f"Server: http://{config.server.host}:{config.server.port}")
+    main_logger.info(f"Log level: {config.server.log_level}")
     if config.server.log_file:
-        logger.info(f"Log file: {config.server.log_file}")
+        main_logger.info(f"Log file: {config.server.log_file}")
     
     # シグナル情報を表示
     if os.name != 'nt':  # Unix系システム
-        logger.info("")
-        logger.info("Signal handling:")
-        logger.info("  SIGINT/Ctrl+C  : Graceful shutdown")
-        logger.info("  SIGTERM        : Graceful shutdown")
-        logger.info("  SIGHUP         : Reload configuration")
-        logger.info("  SIGUSR1        : Output statistics")
-        logger.info("  SIGUSR2        : Restart camera")
-        logger.info("")
-        logger.info("Usage examples:")
-        logger.info(f"  kill -HUP {os.getpid()}   # Reload config")
-        logger.info(f"  kill -USR1 {os.getpid()}  # Show stats")
-        logger.info(f"  kill -USR2 {os.getpid()}  # Restart camera")
+        main_logger.info("")
+        main_logger.info("Signal handling:")
+        main_logger.info("  SIGINT/Ctrl+C  : Graceful shutdown")
+        main_logger.info("  SIGTERM        : Graceful shutdown")
+        main_logger.info("  SIGHUP         : Reload configuration")
+        main_logger.info("  SIGUSR1        : Output statistics")
+        main_logger.info("  SIGUSR2        : Restart camera")
+        main_logger.info("")
+        main_logger.info("Usage examples:")
+        main_logger.info(f"  kill -HUP {os.getpid()}   # Reload config")
+        main_logger.info(f"  kill -USR1 {os.getpid()}  # Show stats")
+        main_logger.info(f"  kill -USR2 {os.getpid()}  # Restart camera")
     else:
-        logger.info("")
-        logger.info("Signal handling:")
-        logger.info("  Ctrl+C         : Graceful shutdown")
+        main_logger.info("")
+        main_logger.info("Signal handling:")
+        main_logger.info("  Ctrl+C         : Graceful shutdown")
     
-    logger.info("=" * 60)
+    main_logger.info("=" * 60)
     
     try:
         # サーバー起動
-        logger.info("Starting server...")
+        main_logger.info("Starting server...")
         
         # UvicornのServerクラスを使用してより詳細な制御
         server_config = uvicorn.Config(
@@ -345,14 +346,14 @@ if __name__ == "__main__":
         server.run()
         
     except KeyboardInterrupt:
-        logger.info("Server stopped by user (KeyboardInterrupt)")
+        main_logger.info("Server stopped by user (KeyboardInterrupt)")
     except SystemExit as e:
-        logger.info(f"Server stopped with exit code: {e.code}")
+        main_logger.info(f"Server stopped with exit code: {e.code}")
     except Exception as e:
-        logger.error(f"Server failed to start: {e}")
+        main_logger.error(f"Server failed to start: {e}")
         sys.exit(1)
     finally:
-        logger.info("Server process terminated")
+        main_logger.info("Server process terminated")
         # 最終的なクリーンアップ
         if 'camera_manager' in globals() and camera_manager:
             camera_manager.stop()
