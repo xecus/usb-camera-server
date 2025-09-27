@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Production Camera Stream</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0; padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            max-width: 1200px; margin: 0 auto;
+            background: white; border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        .header {
+            background: linear-gradient(135deg, #2196F3, #21CBF3);
+            color: white; padding: 30px;
+            text-align: center;
+        }
+        .header h1 { margin: 0; font-size: 2.5em; }
+        .header p { margin: 10px 0 0 0; opacity: 0.9; }
+        .content { padding: 30px; }
+        .video-container {
+            text-align: center; margin: 20px 0;
+            background: #f8f9fa; border-radius: 10px;
+            padding: 20px;
+        }
+        #videoStream {
+            max-width: 100%; border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+        }
+        .status-panel {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px; margin: 30px 0;
+        }
+        .status-card {
+            padding: 20px; border-radius: 10px;
+            text-align: center; color: white;
+        }
+        .status-online { background: linear-gradient(135deg, #4CAF50, #45a049); }
+        .status-offline { background: linear-gradient(135deg, #f44336, #da190b); }
+        .status-warning { background: linear-gradient(135deg, #ff9800, #f57c00); }
+        .controls {
+            display: flex; justify-content: center; gap: 15px;
+            flex-wrap: wrap; margin: 30px 0;
+        }
+        button {
+            padding: 12px 24px; border: none; border-radius: 25px;
+            font-size: 16px; cursor: pointer;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+        .btn-primary {
+            background: linear-gradient(135deg, #2196F3, #21CBF3);
+            color: white;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(33, 150, 243, 0.4);
+        }
+        .stats-grid {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 20px; margin: 30px 0;
+        }
+        .stat-item {
+            background: #f8f9fa; padding: 20px; border-radius: 10px;
+            border-left: 4px solid #2196F3;
+        }
+        .stat-value { font-size: 1.5em; font-weight: bold; color: #2196F3; }
+        .stat-label { color: #666; margin-top: 5px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎥 Production Camera Stream</h1>
+            <p>High-reliability USB camera streaming service</p>
+        </div>
+
+        <div class="content">
+            <div id="statusPanel" class="status-panel">
+                <div id="cameraStatus" class="status-card status-offline">
+                    <div>📹 Camera Status</div>
+                    <div id="cameraStatusText">Checking...</div>
+                </div>
+                <div id="connectionStatus" class="status-card status-offline">
+                    <div>🔗 Connection</div>
+                    <div id="connectionStatusText">Checking...</div>
+                </div>
+            </div>
+
+            <div class="video-container">
+                <img id="videoStream" src="/video_feed" alt="Camera Feed">
+            </div>
+
+            <div class="controls">
+                <button class="btn-primary" onclick="refreshStream()">🔄 Refresh</button>
+                <button class="btn-primary" onclick="toggleFullscreen()">🔍 Fullscreen</button>
+                <button class="btn-primary" onclick="downloadSnapshot()">📷 Snapshot</button>
+                <button class="btn-primary" onclick="toggleStats()">📊 Stats</button>
+            </div>
+
+            <div id="statsSection" class="stats-grid" style="display: none;">
+                <div class="stat-item">
+                    <div id="framesCaptures" class="stat-value">-</div>
+                    <div class="stat-label">Frames Captured</div>
+                </div>
+                <div class="stat-item">
+                    <div id="framesDropped" class="stat-value">-</div>
+                    <div class="stat-label">Frames Dropped</div>
+                </div>
+                <div class="stat-item">
+                    <div id="uptime" class="stat-value">-</div>
+                    <div class="stat-label">Uptime (hours)</div>
+                </div>
+                <div class="stat-item">
+                    <div id="queueSize" class="stat-value">-</div>
+                    <div class="stat-label">Queue Size</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let statsVisible = false;
+
+        async function checkStatus() {
+            try {
+                const response = await fetch('/status');
+                const status = await response.json();
+
+                const cameraCard = document.getElementById('cameraStatus');
+                const cameraText = document.getElementById('cameraStatusText');
+                const connCard = document.getElementById('connectionStatus');
+                const connText = document.getElementById('connectionStatusText');
+
+                if (status.is_running && status.is_connected) {
+                    cameraCard.className = 'status-card status-online';
+                    cameraText.textContent = 'Online & Recording';
+                    connCard.className = 'status-card status-online';
+                    connText.textContent = 'Connected';
+                } else if (status.is_running) {
+                    cameraCard.className = 'status-card status-warning';
+                    cameraText.textContent = 'Running (No Signal)';
+                    connCard.className = 'status-card status-warning';
+                    connText.textContent = 'Reconnecting...';
+                } else {
+                    cameraCard.className = 'status-card status-offline';
+                    cameraText.textContent = 'Offline';
+                    connCard.className = 'status-card status-offline';
+                    connText.textContent = 'Disconnected';
+                }
+
+                // 統計情報更新
+                if (statsVisible && status.stats) {
+                    document.getElementById('framesCaptures').textContent = status.stats.frames_captured;
+                    document.getElementById('framesDropped').textContent = status.stats.frames_dropped;
+                    document.getElementById('uptime').textContent = Math.floor(status.stats.uptime / 3600);
+                    document.getElementById('queueSize').textContent = status.queue_size;
+                }
+
+            } catch (error) {
+                console.error('Status check failed:', error);
+            }
+        }
+
+        function refreshStream() {
+            const img = document.getElementById('videoStream');
+            const src = img.src.split('?')[0];
+            img.src = src + '?t=' + new Date().getTime();
+        }
+
+        function toggleFullscreen() {
+            const img = document.getElementById('videoStream');
+            if (img.requestFullscreen) {
+                img.requestFullscreen();
+            }
+        }
+
+        function downloadSnapshot() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const img = document.getElementById('videoStream');
+
+            canvas.width = img.naturalWidth;
+            canvas.height = img.naturalHeight;
+            ctx.drawImage(img, 0, 0);
+
+            const link = document.createElement('a');
+            link.download = `snapshot_${new Date().toISOString()}.jpg`;
+            link.href = canvas.toDataURL();
+            link.click();
+        }
+
+        function toggleStats() {
+            const statsSection = document.getElementById('statsSection');
+            statsVisible = !statsVisible;
+            statsSection.style.display = statsVisible ? 'grid' : 'none';
+        }
+
+        // 定期的なステータスチェック
+        setInterval(checkStatus, 2000);
+        checkStatus();
+    </script>
+</body>
+</html>
